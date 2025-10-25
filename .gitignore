@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Test data
+test_output/
+*.test.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Sensitive data
+*session*.json
+*cookie*.json
+*password*.txt
+config_local.py
+.env
+*.env
+!.env.example
+.zyxel_router
