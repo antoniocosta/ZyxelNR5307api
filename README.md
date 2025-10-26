@@ -2,7 +2,7 @@
 
 Python API wrapper for the Zyxel NR5307 5G router providing programmatic access to all (known) router functions via DAL and CGI endpoints.
 
-> **Note:** This wrapper was developed and tested on the Zyxel NR5307. It may work with other Zyxel router models using similar firmware (e.g., VMG8825, LTE3301, LTE3302), but compatibility with other models is untested.
+> **Note:** This wrapper was developed and tested on the Zyxel NR5307. It may work with other Zyxel router models using similar firmware (e.g., NR7101, NR5103, NR5307, NR5309, NR5111), but compatibility is untested.
 
 ## Features
 
