@@ -97,6 +97,17 @@ class CredentialStore:
         except Exception:
             return None, None, None, None
     
+    def clear_session(self) -> bool:
+        """Clear saved session cookie (keep username/password)"""
+        try:
+            router_ip, username, password, _ = self.load()
+            if router_ip and username and password:
+                self.save(router_ip, username, password, None)
+                return True
+        except Exception as e:
+            print(f"⚠️  Could not clear session: {e}")
+        return False
+    
     def delete(self) -> bool:
         """Delete saved credentials file"""
         try:

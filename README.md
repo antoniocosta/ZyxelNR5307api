@@ -6,8 +6,9 @@ Python API wrapper for the Zyxel NR5307 5G router providing programmatic access 
 
 ## Features
 
-- **52 endpoints** - 36 DAL OIDs + 16 CGI endpoints
+- **51 endpoints** - 36 DAL OIDs + 15 CGI endpoints
 - **Automatic authentication** - Interactive, saved credentials, environment variables, or manual
+- **Auto session recovery** - Automatically re-authenticates when sessions expire (401 errors)
 - **Secure credential storage** - Encrypted with restricted permissions (chmod 600)
 - **Session management** - Automatic cookie handling and reuse
 - **Production ready** - Type hints, error handling, comprehensive documentation
@@ -86,143 +87,71 @@ api = RouterAPI(router_ip="192.168.1.1", session_cookie="SESSION_COOKIE")
 
 ## API Reference
 
-### Network
+### DAL OID Endpoints (36)
 
-- `get_lanhosts()` - Connected devices (MAC, IP, hostname)
+**Network:**
+- `get_lanhosts()` - Connected devices
 - `get_lan()` - LAN configuration
-- `get_cellwan_status()` - Cellular WAN status and signal
+- `get_lanadv()` - Advanced LAN settings
+- `get_ethwanlan()` - Ethernet WAN/LAN config
+- `get_cellwan_status()` - Cellular WAN status
+- `get_cellwan_sim()` - SIM card info
+- `get_cellwan_psru()` - Cellular PSRU
 - `get_nat()` - NAT configuration
-- `get_static_dhcp()` - Static DHCP leases
+- `get_nat_conf()` - NAT configuration details
+- `get_static_dhcp()` - Static DHCP assignments
 - `get_dns()` - DNS configuration
 - `get_ddns()` - Dynamic DNS settings
-- `get_arp_table()` - ARP table
-- `get_routing_table()` - Routing table
 
-### WiFi
+**WiFi:**
+- `get_wlan()` - WLAN configuration
+- `get_wlan_sch_access()` - WLAN scheduled access
+- `get_wifi_easy_mesh()` - WiFi Easy Mesh settings
+- `get_wifi_mlo()` - WiFi Multi-Link Operation
+- `get_wifi_others()` - Other WiFi settings
+- `get_wps()` - WPS settings
 
-- `get_wlan()` - WiFi configuration (SSID, security)
-- `get_wifi_easy_mesh()` - Mesh network settings
-- `get_wifi_mlo()` - Multi-link operation
-- `get_wps()` - WPS configuration
-- `get_wlan_table()` - Connected WiFi clients
-
-### Security
-
-- `get_firewall()` - Firewall rules
+**Security:**
+- `get_firewall()` - Firewall configuration
 - `get_trust_domain()` - Trusted domain settings
-- `get_cyber_secure()` - Security features
+- `get_cyber_secure()` - Cyber security features
 - `get_paren_ctl()` - Parental controls
 
-### Quality of Service
-
-- `get_qos()` - QoS configuration (bandwidth limits, auto-mapping)
-
-### System
-
-- `get_status()` - Complete system status
-- `get_mgmt_srv()` - Management services
-- `get_user_account()` - User accounts
+**System:**
+- `get_status()` - Complete system status (17KB+ JSON)
+- `get_cardpage_status()` - Card page status
+- `get_backup_restore_config()` - Backup/restore config
+- `get_mgmt_srv()` - Management server settings
+- `get_sp_mgmt_srv()` - Service provider mgmt server
+- `get_user_account()` - User account information
 - `get_login_privilege()` - Login privileges
-- `get_log()` - System logs
 - `get_logset()` - Log settings
 - `get_tr69()` - TR-069 configuration
-- `check_login_status()` - Verify session
+- `get_one_connect()` - One Connect settings
+- `get_email_ntfy()` - Email notifications
 
-### Monitoring
+**Monitoring & QoS:**
+- `get_traffic_status()` - Traffic statistics
+- `get_qos()` - QoS configuration
+- `get_pingtest()` - Ping test
 
-- `get_traffic_status()` - Interface traffic statistics
+### CGI Endpoints (15)
+
+- `get_arp_table()` - ARP table
 - `get_card_info()` - SIM card information
-- `check_wan_connection_status()` - WAN connection status
-
-### Additional Endpoints
-
-`get_ethwanlan()`, `get_dhcp_server()`, `get_port_trigger()`, `get_port_fwd()`, `get_dmz()`, `get_alg()`, `get_backup_restore_config()`, `get_firmware_config()`, `get_remote_mgmt()`, `get_time()`, `get_snmp()`, `get_email_ntfy()`, `get_wireless()`, `get_menu_list()`, `check_fsecure_license()`
-
-## Usage Examples
-
-### Monitor Network
-
-```python
-from api.router_api import RouterAPI
-import time
-
-api = RouterAPI.login_interactive()
-
-while True:
-    devices = api.get_lanhosts()['Object'][0]['lanhosts']
-    active = [d for d in devices if d.get('Active')]
-    
-    status = api.get_status()
-    signal = status['Object'][0]['CellIntfInfo']['RSSI']
-    
-    print(f"Devices: {len(active)}, Signal: {signal} dBm")
-    time.sleep(30)
-```
-
-### Track New Devices
-
-```python
-from api.router_api import RouterAPI
-import time
-
-api = RouterAPI.from_saved_credentials()
-
-known_macs = set()
-while True:
-    devices = api.get_lanhosts()['Object'][0]['lanhosts']
-    current_macs = {d['PhysAddress'] for d in devices if d.get('Active')}
-    
-    if new := current_macs - known_macs:
-        for mac in new:
-            device = next(d for d in devices if d['PhysAddress'] == mac)
-            print(f"New device: {device.get('HostName', 'Unknown')} ({device['IPAddress']})")
-    
-    known_macs = current_macs
-    time.sleep(30)
-```
-
-### Configuration Backup
-
-```python
-from api.router_api import RouterAPI
-import json
-from datetime import datetime
-
-api = RouterAPI.from_env()
-
-backup = {
-    'timestamp': datetime.now().isoformat(),
-    'status': api.get_status(),
-    'lan': api.get_lan(),
-    'wlan': api.get_wlan(),
-    'firewall': api.get_firewall(),
-    'nat': api.get_nat()
-}
-
-filename = f"router_backup_{datetime.now().strftime('%Y%m%d')}.json"
-with open(filename, 'w') as f:
-    json.dump(backup, f, indent=2)
-```
-
-### Monitor Traffic
-
-```python
-from api.router_api import RouterAPI
-import time
-
-api = RouterAPI.login_interactive()
-
-while True:
-    traffic = api.get_traffic_status()
-    obj = traffic['Object'][0]
-    
-    for idx, iface in enumerate(obj.get('ipIface', [])):
-        if iface.get('Status') == 'Up':
-            stats = obj['ipIfaceSt'][idx]
-            print(f"{iface['Name']}: ↓{stats['BytesReceived']} ↑{stats['BytesSent']}")
-    
-    time.sleep(10)
-```
+- `get_diagnostic_result()` - Diagnostic results
+- `get_home_networking()` - Home networking info
+- `get_log()` - System logs
+- `get_login_account_level()` - Login account level
+- `get_menu_list()` - Menu structure
+- `get_mtd_size()` - MTD partition size
+- `get_routing_table()` - Routing table
+- `get_steering_status()` - Band steering status
+- `get_wan_lan_list()` - WAN/LAN interface list
+- `get_wlan_table()` - WLAN client table
+- `get_wireless()` - Wireless information
+- `check_fsecure_license()` - F-Secure license status
+- `check_login_status()` - Verify session status
 
 ## Response Format
 
@@ -270,6 +199,9 @@ python examples/router_info.py
 # Real-time monitoring dashboard
 python examples/router_monitor.py
 
+# Complete status JSON dump
+python examples/router_status.py
+
 # Manage saved credentials
 python examples/router_credentials.py
 ```
@@ -284,6 +216,7 @@ ZyxelNR5307api/
 ├── examples/
 │   ├── router_info.py    # Display router information
 │   ├── router_monitor.py # Real-time monitoring
+│   ├── router_status.py  # Complete status JSON dump
 │   └── router_credentials.py # Credential management
 ├── README.md
 └── requirements.txt
@@ -343,24 +276,42 @@ Credentials are stored in `~/.zyxel_router` with chmod 600:
 
 ## Troubleshooting
 
-### 401 Unauthorized / Invalid Username or Password
+### Automatic Session Recovery
 
-**Symptom:** Getting "401 Client Error: Unauthorized" or "Invalid Username or Password" even though credentials worked before.
+The API now automatically handles expired sessions!
 
-**Cause:** Your saved session cookie has expired (typically after router reboot or timeout).
+When your session expires (401 Unauthorized), the API will:
+1. Detect the session has expired
+2. Clear the expired session from saved credentials
+3. Automatically prompt you to re-authenticate
+4. Retry the original request with the fresh session
+5. Continue without interruption
 
-**Fix:**
+**Example:**
+```python
+api = RouterAPI.login_interactive()
+
+# Session expires after some time...
+status = api.get_status()  # If session expired:
+# ⚠️  Session expired (401 Unauthorized)
+#    Re-authenticating...
+#
+# 💾 Found saved credentials for admin@192.168.1.1
+# Use saved credentials? (yes/no) [yes]:
+#    ✅ Re-authentication successful!
+#
+# [✓] Request completed successfully
+```
+
+**Manual Session Reset (if needed):**
 ```bash
-# Option 1: Delete saved credentials and re-authenticate
+# Option 1: Delete saved credentials completely
 rm ~/.zyxel_router
-python examples/router_info.py  # Will prompt for credentials
+python examples/router_info.py
 
 # Option 2: Use the credentials manager
 python examples/router_credentials.py
 # Choose option 4 to delete, then re-run your script
-
-# Option 3: Force new login in your script
-python3 -c "from api.router_api import RouterAPI; api = RouterAPI.login('192.168.1.1', 'admin', 'password', save_credentials=True)"
 ```
 
 ### Other Common Issues

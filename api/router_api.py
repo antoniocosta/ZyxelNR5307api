@@ -74,7 +74,9 @@ class RouterAPI:
     def __init__(self, router_ip: str = "192.168.1.1", 
                  session_cookie: Optional[str] = None,
                  aes_key: Optional[str] = None,
-                 use_https: bool = False):
+                 use_https: bool = False,
+                 _auth_method: Optional[str] = None,
+                 _credentials_file: Optional[Path] = None):
         """
         Initialize Router API
         
@@ -83,11 +85,17 @@ class RouterAPI:
             session_cookie: Session cookie value (from login)
             aes_key: AES encryption key (base64 encoded, from localStorage)
             use_https: Use HTTPS instead of HTTP
+            _auth_method: Internal - authentication method used
+            _credentials_file: Internal - credentials file path
         """
         self.router_ip = router_ip
         self.base_url = f"{'https' if use_https else 'http'}://{router_ip}"
         self.session_cookie = session_cookie
         self.aes_key = aes_key
+        self.use_https = use_https
+        self._auth_method = _auth_method  # 'interactive', 'saved', etc.
+        self._credentials_file = _credentials_file
+        self._retry_count = 0  # Track retries to prevent infinite loops
         
         # Setup session
         self.session = requests.Session()
@@ -140,7 +148,7 @@ class RouterAPI:
             raise ValueError("Login failed. Check credentials and router IP.")
         
         return cls(router_ip=router_ip, session_cookie=session_cookie, 
-                   aes_key=aes_key, use_https=use_https)
+                   aes_key=aes_key, use_https=use_https, _auth_method='login')
     
     @classmethod
     def from_saved_credentials(cls, credentials_file: Optional[Path] = None,
@@ -169,7 +177,8 @@ class RouterAPI:
                            "Use RouterAPI.login_interactive() to login.")
         
         return cls(router_ip=router_ip, session_cookie=session_cookie,
-                   aes_key=aes_key, use_https=use_https)
+                   aes_key=aes_key, use_https=use_https, _auth_method='saved',
+                   _credentials_file=credentials_file)
     
     @classmethod
     def from_env(cls, aes_key: Optional[str] = None) -> 'RouterAPI':
@@ -207,11 +216,12 @@ class RouterAPI:
             aes_key = os.getenv('ROUTER_AES_KEY')
         
         return cls(router_ip=router_ip, session_cookie=session_cookie,
-                   aes_key=aes_key, use_https=use_https)
+                   aes_key=aes_key, use_https=use_https, _auth_method='env')
     
     @classmethod
     def login_interactive(cls, save_prompt: bool = True,
-                         aes_key: Optional[str] = None) -> 'RouterAPI':
+                         aes_key: Optional[str] = None,
+                         credentials_file: Optional[Path] = None) -> 'RouterAPI':
         """
         Create API instance with interactive login prompts
         
@@ -224,6 +234,7 @@ class RouterAPI:
         Args:
             save_prompt: Prompt user to save credentials (default: True)
             aes_key: Optional AES encryption key
+            credentials_file: Optional custom credentials file path
             
         Returns:
             RouterAPI instance
@@ -235,24 +246,83 @@ class RouterAPI:
             >>> api = RouterAPI.login_interactive()
             # Prompts for credentials and handles everything automatically
         """
-        auth = AuthManager()
+        auth = AuthManager(credentials_file)
         router_ip, session_cookie, use_https = auth.login_interactive(save_prompt)
         
         if not router_ip or not session_cookie:
             raise ValueError("Login failed or cancelled.")
         
         return cls(router_ip=router_ip, session_cookie=session_cookie,
-                   aes_key=aes_key, use_https=use_https)
+                   aes_key=aes_key, use_https=use_https, _auth_method='interactive',
+                   _credentials_file=credentials_file)
+    
+    def _reauthenticate(self) -> bool:
+        """
+        Re-authenticate when session expires
+        
+        Returns:
+            True if re-authentication successful
+        """
+        if self._retry_count > 0:
+            # Already tried to re-auth, don't retry again
+            return False
+        
+        self._retry_count += 1
+        
+        print("\n⚠️  Session expired (401 Unauthorized)")
+        print("   Re-authenticating...\n")
+        
+        # Clear expired session from saved credentials
+        auth = AuthManager(self._credentials_file)
+        auth.store.clear_session()
+        
+        # Re-authenticate based on original method
+        if self._auth_method in ['interactive', 'saved']:
+            # Use interactive login (will prompt for password if needed)
+            router_ip, session_cookie, use_https = auth.login_interactive(save_prompt=False)
+            
+            if router_ip and session_cookie:
+                self.router_ip = router_ip
+                self.session_cookie = session_cookie
+                self.use_https = use_https
+                self.base_url = f"{'https' if use_https else 'http'}://{router_ip}"
+                
+                # Update session cookies
+                self.session.cookies.set('Session', session_cookie)
+                self.session.cookies.set('_TESTCOOKIESUPPORT', '1')
+                
+                print("   ✅ Re-authentication successful!\n")
+                return True
+        
+        print("   ❌ Re-authentication failed\n")
+        return False
     
     def _request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
-        """Make HTTP request with proper headers"""
+        """Make HTTP request with proper headers and auto-retry on session expiry"""
         headers = kwargs.pop('headers', {})
         headers.setdefault('X-Requested-With', 'XMLHttpRequest')
         headers.setdefault('Accept', 'application/json')
         headers.setdefault('User-Agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36')
         
         url = f"{self.base_url}{endpoint}"
-        return self.session.request(method, url, headers=headers, **kwargs)
+        
+        try:
+            response = self.session.request(method, url, headers=headers, **kwargs)
+            response.raise_for_status()
+            self._retry_count = 0  # Reset retry count on success
+            return response
+        except requests.exceptions.HTTPError as e:
+            # Check if it's a 401 Unauthorized error
+            if e.response.status_code == 401:
+                # Try to re-authenticate
+                if self._reauthenticate():
+                    # Retry the request with new session
+                    response = self.session.request(method, url, headers=headers, **kwargs)
+                    response.raise_for_status()
+                    self._retry_count = 0  # Reset retry count on success
+                    return response
+            # Re-raise the error if not 401 or re-auth failed
+            raise
     
     def _decrypt_response(self, response_data: Dict[str, Any]) -> Dict[str, Any]:
         """Decrypt AES-encrypted response"""
@@ -439,7 +509,133 @@ class RouterAPI:
         return self.dal_query("static_dhcp")
     
     def get_status(self) -> Dict[str, Any]:
-        """Query status endpoint - Get system status"""
+        """
+        Query status endpoint - Get comprehensive system status (17KB+ of data)
+        
+        This endpoint returns extensive system information including:
+        - Device information (model, serial, firmware, hardware version)
+        - Memory and CPU usage
+        - System configuration (hostname, domain, location)
+        - Firewall status
+        - LAN port information (status, MAC, speed, duplex)
+        - WiFi networks (ALL networks including hidden management networks)
+        - WAN/LAN interface details
+        - Cellular interface information (IMEI, signal, band, operator)
+        - VoIP configuration
+        - GPON status
+        - USB device information
+        - SMS inbox status
+        
+        Returns:
+            Dict with comprehensive system status organized as:
+            {
+                "result": "ZCFG_SUCCESS",
+                "ReplyMsg": "X_ZYXEL",
+                "Object": [{
+                    "DeviceInfo": {...},
+                    "MemoryStatus": {...},
+                    "ProcessStatus": {...},
+                    "SystemInfo": {...},
+                    "FirewallInfo": {...},
+                    "LanPortInfo": [...],
+                    "WiFiInfo": [...],      # ← Contains hidden networks!
+                    "WanLanInfo": [...],
+                    "CellIntfInfo": {...},
+                    "CellAccessPointInfo": [...],
+                    "VoipProfInfo": [...],
+                    "VoipProfSIPInfo": [...],
+                    "VoipLineInfo": [...],
+                    "GponInfo": {...},
+                    "WWANStatsInfo": {...},
+                    "SMSInfo": [...]
+                }]
+            }
+        
+        WiFiInfo Structure (contains hidden networks):
+            Each WiFi network in the WiFiInfo array contains:
+            - SSID: Network name (may be hex string for hidden networks)
+            - wifiPassword: Network password (plaintext!)
+            - Enable: Whether network is enabled
+            - MACAddress: Network MAC address
+            - OperatingFrequencyBand: "2.4GHz" or "5GHz"
+            - OperatingChannelBandwidth: Channel width
+            - Channel: Current channel
+            - ModeEnabled: Security mode (WPA2/WPA3)
+            - X_ZYXEL_MainSSID: True for main network, False for guest/management
+            
+        Security Note:
+            WiFi passwords are returned in PLAINTEXT! This includes:
+            - Main network passwords
+            - Guest network passwords
+            - Hidden management network passwords (if present)
+            
+            Hidden networks are identified by:
+            - SSID: 30-32 character hexadecimal string
+            - X_ZYXEL_MainSSID: False
+            - MAC address with locally administered bit set
+            
+        Example:
+            >>> status = api.get_status()
+            >>> 
+            >>> # Get device info
+            >>> device = status['Object'][0]['DeviceInfo']
+            >>> print(f"Model: {device['ModelName']}")
+            >>> print(f"Serial: {device['SerialNumber']}")
+            >>> print(f"Firmware: {device['SoftwareVersion']}")
+            >>> 
+            >>> # Get WiFi networks (including hidden)
+            >>> wifi_networks = status['Object'][0]['WiFiInfo']
+            >>> for wifi in wifi_networks:
+            >>>     if wifi['Enable']:
+            >>>         is_hidden = len(wifi['SSID']) > 30 and wifi['SSID'].isalnum()
+            >>>         print(f"{'🔒' if is_hidden else '📡'} {wifi['SSID']}")
+            >>>         print(f"   Password: {wifi['wifiPassword']}")
+            >>> 
+            >>> # Get cellular info
+            >>> cell = status['Object'][0]['CellIntfInfo']
+            >>> print(f"IMEI: {cell['IMEI']}")
+            >>> print(f"Network: {cell['NetworkInUse']}")
+            >>> print(f"Signal: {cell['RSSI']} dBm")
+            >>> 
+            >>> # Get memory usage
+            >>> mem = status['Object'][0]['MemoryStatus']
+            >>> used_mb = (mem['Total'] - mem['Free']) / 1024
+            >>> print(f"Memory: {used_mb:.1f}MB used of {mem['Total']/1024:.1f}MB")
+        
+        Hidden Network Detection:
+            To detect hidden ISP management networks:
+            
+            >>> status = api.get_status()
+            >>> wifi_networks = status['Object'][0]['WiFiInfo']
+            >>> 
+            >>> # Find hidden networks (hex SSIDs)
+            >>> hidden = [w for w in wifi_networks 
+            ...           if len(w['SSID']) >= 30 
+            ...           and all(c in '0123456789abcdefABCDEF' for c in w['SSID'])
+            ...           and w['Enable']]
+            >>> 
+            >>> for network in hidden:
+            ...     print(f"Hidden Network Found:")
+            ...     print(f"  SSID: {network['SSID']}")
+            ...     print(f"  Password: {network['wifiPassword']}")
+            ...     print(f"  MAC: {network['MACAddress']}")
+            ...     print(f"  Band: {network['OperatingFrequencyBand']}")
+        
+        Data Size:
+            Approximately 17,400 bytes (17KB) of JSON data
+            
+        Performance:
+            Response time: ~200-500ms typical
+            Rate limit: No enforced limit observed
+            
+        Authentication Required:
+            Yes - Admin level access required
+            
+        Related Methods:
+            - get_wlan() - Just WiFi configuration (subset of status)
+            - get_cellwan_status() - Just cellular info (subset of status)
+            - get_lanhosts() - Just connected devices (separate endpoint)
+        """
         return self.dal_query("status")
     
     def get_tr69(self) -> Dict[str, Any]:
