@@ -196,7 +196,8 @@ except Exception as e:
 # Display comprehensive router information
 python examples/router_info.py
 
-# Real-time monitoring dashboard
+# Real-time 5G N78 band signal quality monitor
+# Shows RSSI, RSRP, RSRQ, SINR with visual bars and quality assessment
 python examples/router_monitor.py
 
 # Complete status JSON dump
@@ -215,7 +216,7 @@ ZyxelNR5307api/
 │   └── router_api.py     # Main API wrapper (all endpoints)
 ├── examples/
 │   ├── router_info.py    # Display router information
-│   ├── router_monitor.py # Real-time monitoring
+│   ├── router_monitor.py # Real-time N78 band signal quality monitor
 │   ├── router_status.py  # Complete status JSON dump
 │   └── router_credentials.py # Credential management
 ├── README.md
