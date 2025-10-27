@@ -255,6 +255,7 @@ def main():
                     operator = cell_data.get('INTF_Network_In_Use', 'N/A')
                     technology = cell_data.get('INTF_Current_Access_Technology', 'N/A')
                     primary_band = cell_data.get('INTF_Current_Band', 'N/A')
+                    cell_id = cell_data.get('INTF_Cell_ID', 'N/A')
                     
                     # Check for N78 in NSA (Non-Standalone Access) mode
                     nsa_band = cell_data.get('NSA_Band', '')
@@ -266,6 +267,7 @@ def main():
                     print(f"   Primary Band: {primary_band}")
                     if nsa_enabled and nsa_band:
                         print(f"   5G NSA Band: {nsa_band}")
+                    print(f"   Cell ID: {cell_id}")
                     
                     # Check if we have N78 band data (in NSA mode or SCC_Info)
                     has_n78 = nsa_enabled and nsa_band == 'N78'
