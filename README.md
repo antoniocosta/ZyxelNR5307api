@@ -4,6 +4,10 @@ Python API wrapper for the Zyxel NR5307 5G router providing programmatic access 
 
 > **Note:** This wrapper was developed and tested on the Zyxel NR5307. It may work with other Zyxel router models using similar firmware (e.g., NR7101, NR5103, NR5307, NR5309, NR5111), but compatibility is untested.
 
+If you like ❤️ this or find it useful 🌟, support the project by buying me a coffee ☕.
+
+<a href="https://www.buymeacoffee.com/antoniocosta" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 40px !important;width: 140px !important;" ></a>
+
 ## Features
 
 - **51 endpoints** - 36 DAL OIDs + 15 CGI endpoints
